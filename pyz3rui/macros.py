@@ -4,11 +4,22 @@ Common executive functions.
 
 
 import logging as log
+import os.path
+import pprint
 
 import pyz3r
 
 
-__all__ = 'load', 'generate'
+__all__ = 'versions', 'load', 'generate'
+
+
+def versions() -> None:
+    '''
+    Print version numbers.
+    '''
+    
+    log.info('pyz3rui: rolling')
+    log.info('pyz3r: %s', pyz3r.__version__)
 
 
 def load(hash: str, settings: dict) -> None:
@@ -29,7 +40,7 @@ def load(hash: str, settings: dict) -> None:
     patch(game, settings)
 
 
-def generate(settings: dict):
+def generate(settings: dict) -> None:
     '''
     Generate new game.
 
@@ -50,6 +61,7 @@ def generate(settings: dict):
             'weapons': settings['swords'],
             'spoilers': settings['spoiler'],
             'tournament': settings['race'],
+            'shuffle': settings['entranceshuffle'],
             'lang': 'en'})
 
     # Patch game.
@@ -74,10 +86,38 @@ def patch(game, settings: dict) -> None:
         heartcolor=settings['heartcolour'], spritename=settings['sprite'],
         music=not settings['no-music'])
 
+    # Build output file location.
+    meta = game.data['spoiler']['meta']
+    if settings['output']:
+        outfile = settings['output']
+    else:
+        if 'name' in meta:
+            outfile = meta['name']
+        else:
+            outfile = (
+                'ALttP - VT_{0:s}_{1:s}-{2:s}{3:s}-{4:s}{5:s}_{6:s}'.format(
+                    meta['logic'], meta['difficulty'], meta['mode'],
+                    ('_{0:s}'.format(meta['weapons'])
+                     if 'weapons' in meta else ''),
+                    meta['goal'],
+                    ('_{0:s}'.format(meta['variation'])
+                     if meta['variation'] != 'none' else ''),
+                    game.hash))
+        infofile = '{0:s}.txt'.format(outfile)
+        outfile = '{0:s}.sfc'.format(outfile)
+        outfile = os.path.join(settings['output-dir'], outfile)
+
+    # Write game info.
+    if not settings['output']:
+        infofile = os.path.join(settings['output-dir'], infofile)
+        with open(infofile, 'w') as fid:
+            pprint.pprint(game.data['spoiler'], stream=fid)
+
     # Write new game.
-    pyz3r.romfile.write(newgame, settings['output'])
+    log.debug('New file: {0:s}'.format(outfile))
+    pyz3r.romfile.write(newgame, outfile)
 
     # Print game info.
+    log.info('File: %s', outfile)
     log.info('Permalink: %s', game.url)
-    # not working
-    # log.info('Code: %s', ' | '.join(game.code()))
+    log.info('Code: %s', ' | '.join(game.code()))
