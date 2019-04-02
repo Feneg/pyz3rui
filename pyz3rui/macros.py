@@ -3,9 +3,12 @@ Common executive functions.
 '''
 
 
+import http.client
+import json
 import logging as log
 import os.path
 import pprint
+import random
 
 import pyz3r
 
@@ -17,7 +20,7 @@ def versions() -> None:
     '''
     Print version numbers.
     '''
-    
+
     log.info('pyz3rui: rolling')
     log.info('pyz3r: %s', pyz3r.__version__)
 
@@ -77,13 +80,21 @@ def patch(game, settings: dict) -> None:
         settings: dictionary patch settings for game
     '''
 
+    # Random sprite?
+    if settings['sprite'].lower() == 'random':
+        sprite = random_sprite()
+        randomsprite = True
+    else:
+        sprite = settings['sprite']
+        randomsprite = False
+
     # Load ROM.
     origin = pyz3r.romfile.read(settings['input'])
 
     # Patch game.
     newgame = game.create_patched_game(
         origin, heartspeed=settings['heartspeed'],
-        heartcolor=settings['heartcolour'], spritename=settings['sprite'],
+        heartcolor=settings['heartcolour'], spritename=sprite,
         music=not settings['no-music'])
 
     # Build output file location.
@@ -121,3 +132,26 @@ def patch(game, settings: dict) -> None:
     log.info('File: %s', outfile)
     log.info('Permalink: %s', game.url)
     log.info('Code: %s', ' | '.join(game.code()))
+    if randomsprite:
+        log.info('Sprite: %s', sprite)
+
+
+def random_sprite() -> str:
+    '''
+    Randomly choose a sprite.
+
+    Args:
+        str: random sprite name
+    '''
+
+    # Get sprite list.
+    alttpr = http.client.HTTPSConnection('alttpr.com')
+    alttpr.request('GET', '/sprites')
+    sprite_json = alttpr.getresponse().read()
+    spritelist = json.loads(sprite_json)
+
+    # RNG
+    sprite = spritelist[random.randrange(0, len(spritelist))]['name']
+    log.debug('Randomly chosen sprite: %s', sprite)
+
+    return sprite
