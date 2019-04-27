@@ -91,8 +91,7 @@ def parser() -> None:
         description='Generate and download Zelda 3 randomiser games.',
         epilog=(
             "Note: This program reads and writes a file 'pyz3rui.conf' in the "
-            'current working directory.'
-            'WARNING: Do not use for races!'))
+            'current working directory. WARNING: Do not use for races!'))
     args.add_argument(
         '--config', action='store', choices=available,
         help='Choose custom configuration.')

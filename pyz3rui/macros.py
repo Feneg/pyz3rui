@@ -21,7 +21,7 @@ def versions() -> None:
     Print version numbers.
     '''
 
-    log.info('pyz3rui: rolling')
+    log.info('pyz3rui: %s', '1.0.0')
     log.info('pyz3r: %s', pyz3r.__version__)
 
 
