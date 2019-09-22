@@ -3,7 +3,10 @@ Command-line interface
 '''
 
 import argparse
+import asyncio
 import configparser
+import http.client
+import json
 import logging as log
 import operator
 
@@ -29,6 +32,21 @@ def listconfigs() -> list:
         config.read(CONFIGFILE)
     except configparser.ParsingError:
         return None
+    if not config.has_section('version'):
+        log.debug('Found old configuration file.')
+        with open(CONFIGFILE, 'w') as fid:
+            fid.write('')
+        return None
+    else:
+        fileversion = tuple(
+            int(n) for n in config['version']['version'].split('.'))
+        def vercalc(v): return 1000**2 * v[0] + 1000 * v[1] + v[2]
+        if vercalc(fileversion) < vercalc(macros.VERSION):
+            log.debug('Found outdated configuration file.')
+            with open(CONFIGFILE, 'w') as fid:
+                fid.write('')
+            return None
+    del config['version']
     return config.sections()
 
 
@@ -49,6 +67,20 @@ def loadconfig(configset: str = 'defaults') -> dict:
     except configparser.ParsingError:
         log.debug("Could not read config file '%s'.", CONFIGFILE)
         return None
+    if not config.has_section('version'):
+        log.debug('Found old configuration file.')
+        with open(CONFIGFILE, 'w') as fid:
+            fid.write('')
+        return None
+    else:
+        fileversion = tuple(
+            int(n) for n in config['version']['version'].split('.'))
+        def vercalc(v): return 1000**2 * v[0] + 1000 * v[1] + v[2]
+        if vercalc(fileversion) < vercalc(macros.VERSION):
+            log.debug('Found outdated configuration file.')
+            with open(CONFIGFILE, 'w') as fid:
+                fid.write('')
+            return None
     if not config.has_section(configset):
         log.debug("No configuration set '%s' found.", configset)
         return None
@@ -71,8 +103,25 @@ def writeconfig(config: dict) -> None:
     except configparser.ParsingError:
         pass
     outconf['defaults'] = config
+    outconf['version'] = {'version': '.'.join(str(n) for n in macros.VERSION)}
     with open(CONFIGFILE, 'w') as fid:
         outconf.write(fid)
+
+
+def loadoptions() -> dict:
+    '''
+    Load available randomiser options.
+
+    Returns:
+        dict: {'configuration': {'option': 'description'}}
+    '''
+
+    alttpr = http.client.HTTPSConnection('alttpr.com')
+    alttpr.request('GET', '/randomizer/settings')
+    options = json.loads(alttpr.getresponse().read())
+    alttpr.close()
+    del options['presets']['custom']
+    return options
 
 
 def parser() -> None:
@@ -84,6 +133,9 @@ def parser() -> None:
     available = listconfigs()
     if not available:
         available = ('defaults',)
+
+    # Get available settings.
+    options = loadoptions()
 
     # Build CLI parser.
     args = argparse.ArgumentParser(
@@ -121,8 +173,8 @@ def parser() -> None:
     args.add_argument(
         '--no-music', action='store_true', help='Disable game music.')
     args.add_argument(
-        '--randomiser', action='store', choices=('item', 'entrance'),
-        help='Randomisation type')
+        '--palette-shuffle', action='store_true',
+        help='Activate palette shuffle.')
 
     commands = args.add_subparsers(
         title='commands', metavar='<command>',
@@ -133,40 +185,13 @@ def parser() -> None:
         'generate', aliases=('gen', 'g'),
         description='Generate new randomised game.',
         help='Generate new randomised game.')
-    genargs.add_argument(
-        '--difficulty', action='store',
-        choices=('easy', 'normal', 'hard', 'expert', 'insane', 'crowdControl'),
-        help='Game difficulty')
-    genargs.add_argument(
-        '--logic', action='store',
-        choices=('NoGlitches', 'OverworldGlitches', 'MajorGlitches', 'None'),
-        help='Item placement ruleset')
-    genargs.add_argument(
-        '--state', action='store',
-        choices=('standard', 'open', 'inverted'), help='Game state')
-    genargs.add_argument(
-        '--goal', action='store',
-        choices=('ganon', 'crystals', 'dungeons', 'pedestal', 'triforce-hunt'),
-        help='Game goal.')
-    genargs.add_argument(
-        '--variation', action='store',
-        choices=(
-            'none', 'key-sanity', 'retro', 'timed-race', 'timed-ohko', 'ohko'),
-        help='Game variation.')
-    genargs.add_argument(
-        '--swords', action='store',
-        choices=('randomized', 'uncle', 'swordless'), help='Sword placement')
-    genargs.add_argument(
-        '--entranceshuffle', action='store',
-        choices=('simple', 'restricted', 'full', 'crossed', 'insanity'),
-        help='Entrance shuffle mode.')
+    for config in options:
+        genargs.add_argument(
+            '--{0:s}'.format(config.replace('_', '-')), action='store',
+            choices=tuple(options[config].keys()))
     spoilargs = genargs.add_mutually_exclusive_group()
     spoilargs.add_argument(
-        '--spoiler', action='store_true', help='Generate spoiler game.')
-    spoilargs.add_argument(
         '--race', action='store_true', help='Generate race game.')
-    genargs.add_argument(
-        '--enemiser', action='store_true', help='Activate enemiser.')
     genargs.set_defaults(func=macros.generate)
 
     loadargs = commands.add_parser(
@@ -195,22 +220,19 @@ def parser() -> None:
     # Load default values.
     default_config = {
         'input': 'Zelda no Densetsu - Kamigami no Triforce.sfc',
-        'output': 'Z3R.sfc', 'output-dir': '',
+        'output': 'Z3R.sfc', 'output_dir': '',
         'heartspeed': 'half', 'heartcolour': 'red', 'sprite': 'Link',
-        'no-music': False, 'randomiser': 'item',
-        'difficulty': 'normal', 'logic': 'NoGlitches', 'state': 'standard',
-        'goal': 'ganon', 'variation': 'none', 'swords': 'randomized',
-        'entranceshuffle': 'full', 'spoiler': False, 'race': False,
-        'enemiser': False}
-    config = loadconfig(
-        comm.config if comm.config is not None else 'defaults')
+        'no_music': False,
+        'presets': 'default', 'race': False}
+    default_config.update(options['presets'][default_config['presets']])
+    config = loadconfig(comm.config if comm.config is not None else 'defaults')
     if not config:
         log.debug('Applying default configuration.')
         config = default_config
 
     # Apply default values as needed.
     for conf in default_config:
-        getter = operator.attrgetter(conf.replace('-', '_'))
+        getter = operator.attrgetter(conf)
         try:
             stored = getter(comm)
         except AttributeError:
@@ -219,18 +241,20 @@ def parser() -> None:
         else:
             if stored is not None:
                 config[conf] = stored
-    if config['output-dir'] and not comm.output:
+    if config['output_dir'] and not comm.output:
         config['output'] = ''
     log.debug('Applying game settings:')
     for conf in config:
         log.debug('   %s: %s', conf, config[conf])
 
     # Run command.
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     if comm.func is macros.load:
-        macros.load(comm.hash, config)
+        loop.run_until_complete(macros.load(comm.hash, config))
     else:
         assert comm.func is macros.generate
-        macros.generate(config)
+        loop.run_until_complete(macros.generate(config))
 
     # Store arguments.
     writeconfig(config)

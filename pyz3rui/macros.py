@@ -2,7 +2,6 @@
 Common executive functions.
 '''
 
-
 import http.client
 import json
 import logging as log
@@ -12,6 +11,7 @@ import random
 
 import pyz3r
 
+VERSION = (1, 1, 0)
 
 __all__ = 'versions', 'load', 'generate'
 
@@ -21,11 +21,11 @@ def versions() -> None:
     Print version numbers.
     '''
 
-    log.info('pyz3rui: %s', '1.0.0')
+    log.info('pyz3rui: %s', '.'.join(str(n) for n in VERSION))
     log.info('pyz3r: %s', pyz3r.__version__)
 
 
-def load(hash: str, settings: dict) -> None:
+async def load(hash: str, settings: dict) -> None:
     '''
     Load and patch an already generated game.
 
@@ -37,13 +37,13 @@ def load(hash: str, settings: dict) -> None:
     log.debug('Loading game with hash: %s', str(hash))
 
     # Load game.
-    game = pyz3r.alttpr(hash=hash)
+    game = await pyz3r.alttpr(hash=hash)
 
     # Patch game.
-    patch(game, settings)
+    await patch(game, settings)
 
 
-def generate(settings: dict) -> None:
+async def generate(settings: dict) -> None:
     '''
     Generate new game.
 
@@ -52,26 +52,13 @@ def generate(settings: dict) -> None:
     '''
 
     # Generate game.
-    game = pyz3r.alttpr(
-        randomizer=settings['randomiser'],
-        settings={
-            'difficulty': settings['difficulty'],
-            'enemizer': settings['enemiser'],
-            'logic': settings['logic'],
-            'mode': settings['state'],
-            'goal': settings['goal'],
-            'variation': settings['variation'],
-            'weapons': settings['swords'],
-            'spoilers': settings['spoiler'],
-            'tournament': settings['race'],
-            'shuffle': settings['entranceshuffle'],
-            'lang': 'en'})
+    game = await pyz3r.alttpr(settings=settings)
 
     # Patch game.
-    patch(game, settings)
+    await patch(game, settings)
 
 
-def patch(game, settings: dict) -> None:
+async def patch(game, settings: dict) -> None:
     '''
     Patch and write newly randomised game.
 
@@ -89,13 +76,13 @@ def patch(game, settings: dict) -> None:
         randomsprite = False
 
     # Load ROM.
-    origin = pyz3r.romfile.read(settings['input'])
+    origin = await pyz3r.romfile.read(settings['input'])
 
     # Patch game.
-    newgame = game.create_patched_game(
+    newgame = await game.create_patched_game(
         origin, heartspeed=settings['heartspeed'],
         heartcolor=settings['heartcolour'], spritename=sprite,
-        music=not settings['no-music'])
+        music=not settings['no_music'])
 
     # Build output file location.
     meta = game.data['spoiler']['meta']
@@ -106,32 +93,29 @@ def patch(game, settings: dict) -> None:
             outfile = meta['name']
         else:
             outfile = (
-                'ALttP - VT_{0:s}_{1:s}-{2:s}{3:s}-{4:s}{5:s}_{6:s}'.format(
-                    meta['logic'], meta['difficulty'], meta['mode'],
+                'ALttP - VT_{0:s}-{1:s}{2:s}-{3:s}_{4:s}'.format(
+                    meta['logic'], meta['mode'],
                     ('_{0:s}'.format(meta['weapons'])
                      if 'weapons' in meta else ''),
-                    meta['goal'],
-                    ('_{0:s}'.format(meta['variation'])
-                     if meta['variation'] != 'none' else ''),
-                    game.hash))
+                    meta['goal'], game.hash))
         infofile = '{0:s}.txt'.format(outfile)
         outfile = '{0:s}.sfc'.format(outfile)
-        outfile = os.path.join(settings['output-dir'], outfile)
+        outfile = os.path.join(settings['output_dir'], outfile)
 
     # Write game info.
     if not settings['output']:
-        infofile = os.path.join(settings['output-dir'], infofile)
+        infofile = os.path.join(settings['output_dir'], infofile)
         with open(infofile, 'w') as fid:
             pprint.pprint(game.data['spoiler'], stream=fid)
 
     # Write new game.
     log.debug('New file: {0:s}'.format(outfile))
-    pyz3r.romfile.write(newgame, outfile)
+    await pyz3r.romfile.write(newgame, outfile)
 
     # Print game info.
     log.info('File: %s', outfile)
     log.info('Permalink: %s', game.url)
-    log.info('Code: %s', ' | '.join(game.code()))
+    log.info('Code: %s', ' | '.join(await game.code()))
     if randomsprite:
         log.info('Sprite: %s', sprite)
 
@@ -148,6 +132,7 @@ def random_sprite() -> str:
     alttpr = http.client.HTTPSConnection('alttpr.com')
     alttpr.request('GET', '/sprites')
     sprite_json = alttpr.getresponse().read()
+    alttpr.close()
     spritelist = json.loads(sprite_json)
 
     # RNG
